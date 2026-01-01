@@ -11,6 +11,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <csignal>
 #include <cstdio>
 #include <cstring>
 #include <fstream>
@@ -18,6 +19,17 @@
 #include <string>
 #include <thread>
 #include <vector>
+
+// Global flag for signal handling
+static std::atomic<bool> g_running(true);
+
+// Signal handler for graceful shutdown
+static void signal_handler(int signal) {
+    if (signal == SIGINT || signal == SIGTERM) {
+        fprintf(stderr, "\nReceived signal %d, shutting down...\n", signal);
+        g_running = false;
+    }
+}
 
 // System prompt for Llama intent classification
 static const char * INTENT_SYSTEM_PROMPT = R"(You are an intent classifier for FrameForge Studio, a professional previsualization software.
@@ -481,15 +493,18 @@ int main(int argc, char ** argv) {
         // Initialize command validator
         frameforge::CommandValidator validator;
         
+        // Set up signal handlers for graceful shutdown
+        std::signal(SIGINT, signal_handler);
+        std::signal(SIGTERM, signal_handler);
+        
         fprintf(stderr, "FrameForge Sidecar ready. Listening to microphone...\n");
         fprintf(stderr, "Press Ctrl+C to stop\n");
         
         // Main loop for live audio
-        std::atomic<bool> running(true);
         constexpr float MIN_AUDIO_DURATION_SEC = 2.0f;  // Process at least 2 seconds of audio
         const size_t MIN_AUDIO_SAMPLES = static_cast<size_t>(MIN_AUDIO_DURATION_SEC * audio_config.sample_rate);
         
-        while (running) {
+        while (g_running) {
             std::this_thread::sleep_for(std::chrono::milliseconds(100));
             
             // Get accumulated audio buffer
@@ -573,11 +588,15 @@ int main(int argc, char ** argv) {
         return 1;
     }
     
+    // Set up signal handlers for graceful shutdown
+    std::signal(SIGINT, signal_handler);
+    std::signal(SIGTERM, signal_handler);
+    
     fprintf(stderr, "FrameForge Sidecar ready. Waiting for commands...\n");
+    fprintf(stderr, "Press Ctrl+C to stop\n");
     
     // Main loop
-    std::atomic<bool> running(true);
-    while (running) {
+    while (g_running) {
         // In a real implementation, this would:
         // 1. Receive audio data from the IPC pipe
         // 2. Transcribe with Whisper

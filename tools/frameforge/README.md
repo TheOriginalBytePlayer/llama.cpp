@@ -186,7 +186,6 @@ This mode continuously captures audio from the default microphone, processes it 
 - `-t, --threads N` - Number of threads (default: 4)
 - `-v, --verbose` - Enable verbose output
 - `-h, --help` - Show help message
-- `-h, --help` - Show help message
 
 ### Verb Definitions
 

@@ -11,6 +11,10 @@ namespace frameforge {
 
 #ifdef FRAMEFORGE_PORTAUDIO_SUPPORT
 
+// Global PortAudio initialization tracking
+static bool g_portaudio_initialized = false;
+static int  g_portaudio_ref_count   = 0;
+
 AudioCapture::AudioCapture(const AudioConfig & config)
     : config_(config)
     , callback_(nullptr)
@@ -24,21 +28,26 @@ AudioCapture::~AudioCapture() {
         Pa_CloseStream(static_cast<PaStream *>(stream_));
         stream_ = nullptr;
     }
-    Pa_Terminate();
+    // Note: We don't call Pa_Terminate() here as it affects global PortAudio state
+    // In a production application, Pa_Terminate() should be called once at application shutdown
 }
 
 bool AudioCapture::initialize() {
-    PaError err = Pa_Initialize();
-    if (err != paNoError) {
-        std::cerr << "PortAudio error: " << Pa_GetErrorText(err) << std::endl;
-        return false;
+    // Initialize PortAudio if not already initialized
+    if (!g_portaudio_initialized) {
+        PaError err = Pa_Initialize();
+        if (err != paNoError) {
+            std::cerr << "PortAudio error: " << Pa_GetErrorText(err) << std::endl;
+            return false;
+        }
+        g_portaudio_initialized = true;
     }
+    g_portaudio_ref_count++;
 
     // Get default input device
     PaDeviceIndex device = Pa_GetDefaultInputDevice();
     if (device == paNoDevice) {
         std::cerr << "Error: No default input device found" << std::endl;
-        Pa_Terminate();
         return false;
     }
 
@@ -59,7 +68,7 @@ bool AudioCapture::initialize() {
     input_params.hostApiSpecificStreamInfo = nullptr;
 
     // Open audio stream
-    err = Pa_OpenStream(
+    PaError err = Pa_OpenStream(
         reinterpret_cast<PaStream **>(&stream_), &input_params,
         nullptr,  // no output
         config_.sample_rate, config_.frames_per_buffer, paClipOff, 
@@ -67,7 +76,6 @@ bool AudioCapture::initialize() {
 
     if (err != paNoError) {
         std::cerr << "PortAudio error: " << Pa_GetErrorText(err) << std::endl;
-        Pa_Terminate();
         return false;
     }
 
