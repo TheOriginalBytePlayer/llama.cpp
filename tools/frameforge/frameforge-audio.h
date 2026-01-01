@@ -53,7 +53,10 @@ public:
     void clear_buffer();
     
     // Check if ready to process (speech detected + silence after)
-    bool is_ready_to_process() const { return ready_to_process_; }
+    bool is_ready_to_process() const {
+        std::lock_guard<std::mutex> lock(const_cast<std::mutex &>(vad_mutex_));
+        return ready_to_process_;
+    }
     
     // Reset VAD state
     void reset_vad_state();
@@ -66,11 +69,12 @@ private:
     std::mutex buffer_mutex_;
     void * stream_;  // PaStream* (opaque pointer to avoid including portaudio.h here)
     
-    // VAD state tracking
-    std::atomic<bool> ready_to_process_;
-    std::atomic<bool> has_speech_;
-    std::atomic<size_t> speech_sample_count_;
-    std::atomic<size_t> silence_sample_count_;
+    // VAD state tracking (protected by vad_mutex_)
+    std::mutex vad_mutex_;
+    bool ready_to_process_;
+    bool has_speech_;
+    size_t speech_sample_count_;
+    size_t silence_sample_count_;
     size_t min_speech_samples_;
     size_t silence_samples_threshold_;
 

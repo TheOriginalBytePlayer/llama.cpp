@@ -4,6 +4,7 @@
 #include <portaudio.h>
 #endif
 
+#include <atomic>
 #include <cmath>
 #include <cstring>
 #include <iostream>
@@ -143,6 +144,7 @@ void AudioCapture::clear_buffer() {
 }
 
 void AudioCapture::reset_vad_state() {
+    std::lock_guard<std::mutex> lock(vad_mutex_);
     ready_to_process_ = false;
     has_speech_ = false;
     speech_sample_count_ = 0;
@@ -200,30 +202,35 @@ void AudioCapture::handle_audio_data(const float * data, unsigned long frame_cou
     // Perform voice activity detection
     bool current_is_speech = is_speech(data, total_samples);
     
-    if (current_is_speech) {
-        // We have speech
-        speech_sample_count_ += total_samples;
-        silence_sample_count_ = 0;  // Reset silence counter
+    // Update VAD state atomically
+    {
+        std::lock_guard<std::mutex> lock(vad_mutex_);
         
-        // Mark that we've detected speech
-        if (speech_sample_count_ >= min_speech_samples_) {
-            has_speech_ = true;
-        }
-    } else {
-        // We have silence
-        if (has_speech_) {
-            // We had speech before, now counting silence
-            silence_sample_count_ += total_samples;
+        if (current_is_speech) {
+            // We have speech
+            speech_sample_count_ += total_samples;
+            silence_sample_count_ = 0;  // Reset silence counter
             
-            // Check if we've had enough silence to trigger processing
-            if (silence_sample_count_ >= silence_samples_threshold_) {
-                ready_to_process_ = true;
+            // Mark that we've detected speech
+            if (speech_sample_count_ >= min_speech_samples_) {
+                has_speech_ = true;
             }
-        }
-        // If we don't have speech yet, keep resetting counters
-        else {
-            speech_sample_count_ = 0;
-            silence_sample_count_ = 0;
+        } else {
+            // We have silence
+            if (has_speech_) {
+                // We had speech before, now counting silence
+                silence_sample_count_ += total_samples;
+                
+                // Check if we've had enough silence to trigger processing
+                if (silence_sample_count_ >= silence_samples_threshold_) {
+                    ready_to_process_ = true;
+                }
+            }
+            // If we don't have speech yet, keep resetting counters
+            else {
+                speech_sample_count_ = 0;
+                silence_sample_count_ = 0;
+            }
         }
     }
 
