@@ -164,7 +164,11 @@ Download and install PortAudio from http://www.portaudio.com/
   --verbose
 ```
 
-This mode continuously captures audio from the default microphone, processes it in chunks (minimum 2 seconds), transcribes with Whisper, classifies with Llama, and validates commands. The audio buffer is cleared after each processing cycle.
+This mode continuously captures audio from the default microphone using Voice Activity Detection (VAD). It automatically detects when speech begins and ends, then processes the audio when:
+1. At least 500ms of speech is detected
+2. Followed by 250ms of silence
+
+The captured speech is then transcribed with Whisper, classified with Llama, and validated. The audio buffer is cleared after each processing cycle.
 
 ### Server Mode (IPC with Named Pipes)
 

@@ -4,8 +4,9 @@
 #include <portaudio.h>
 #endif
 
-#include <iostream>
+#include <cmath>
 #include <cstring>
+#include <iostream>
 
 namespace frameforge {
 
@@ -19,7 +20,18 @@ AudioCapture::AudioCapture(const AudioConfig & config)
     : config_(config)
     , callback_(nullptr)
     , capturing_(false)
-    , stream_(nullptr) {
+    , stream_(nullptr)
+    , ready_to_process_(false)
+    , has_speech_(false)
+    , speech_sample_count_(0)
+    , silence_sample_count_(0) {
+    // Calculate sample thresholds
+    min_speech_samples_ = static_cast<size_t>(
+        (config_.min_speech_duration_ms / 1000.0f) * config_.sample_rate
+    );
+    silence_samples_threshold_ = static_cast<size_t>(
+        (config_.silence_duration_ms / 1000.0f) * config_.sample_rate
+    );
 }
 
 AudioCapture::~AudioCapture() {
@@ -130,6 +142,31 @@ void AudioCapture::clear_buffer() {
     audio_buffer_.clear();
 }
 
+void AudioCapture::reset_vad_state() {
+    ready_to_process_ = false;
+    has_speech_ = false;
+    speech_sample_count_ = 0;
+    silence_sample_count_ = 0;
+}
+
+float AudioCapture::calculate_rms(const float * data, size_t sample_count) const {
+    if (!data || sample_count == 0) {
+        return 0.0f;
+    }
+    
+    float sum_squares = 0.0f;
+    for (size_t i = 0; i < sample_count; ++i) {
+        sum_squares += data[i] * data[i];
+    }
+    
+    return std::sqrt(sum_squares / sample_count);
+}
+
+bool AudioCapture::is_speech(const float * data, size_t sample_count) const {
+    float rms = calculate_rms(data, sample_count);
+    return rms > config_.vad_threshold;
+}
+
 int AudioCapture::pa_callback(const void * input, void * output, unsigned long frame_count,
                               const void * time_info, unsigned long status_flags, void * user_data) {
     (void) output;
@@ -158,6 +195,36 @@ void AudioCapture::handle_audio_data(const float * data, unsigned long frame_cou
     {
         std::lock_guard<std::mutex> lock(buffer_mutex_);
         audio_buffer_.insert(audio_buffer_.end(), data, data + total_samples);
+    }
+
+    // Perform voice activity detection
+    bool current_is_speech = is_speech(data, total_samples);
+    
+    if (current_is_speech) {
+        // We have speech
+        speech_sample_count_ += total_samples;
+        silence_sample_count_ = 0;  // Reset silence counter
+        
+        // Mark that we've detected speech
+        if (speech_sample_count_ >= min_speech_samples_) {
+            has_speech_ = true;
+        }
+    } else {
+        // We have silence
+        if (has_speech_) {
+            // We had speech before, now counting silence
+            silence_sample_count_ += total_samples;
+            
+            // Check if we've had enough silence to trigger processing
+            if (silence_sample_count_ >= silence_samples_threshold_) {
+                ready_to_process_ = true;
+            }
+        }
+        // If we don't have speech yet, keep resetting counters
+        else {
+            speech_sample_count_ = 0;
+            silence_sample_count_ = 0;
+        }
     }
 
     // Call user callback if set

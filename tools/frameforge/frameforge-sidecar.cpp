@@ -499,19 +499,18 @@ int main(int argc, char ** argv) {
         
         fprintf(stderr, "FrameForge Sidecar ready. Listening to microphone...\n");
         fprintf(stderr, "Press Ctrl+C to stop\n");
+        fprintf(stderr, "VAD settings: min_speech=%.0fms, silence=%.0fms\n", 
+                audio_config.min_speech_duration_ms, audio_config.silence_duration_ms);
         
-        // Main loop for live audio
-        constexpr float MIN_AUDIO_DURATION_SEC = 2.0f;  // Process at least 2 seconds of audio
-        const size_t MIN_AUDIO_SAMPLES = static_cast<size_t>(MIN_AUDIO_DURATION_SEC * audio_config.sample_rate);
-        
+        // Main loop for live audio with VAD
         while (g_running) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+            std::this_thread::sleep_for(std::chrono::milliseconds(50));
             
-            // Get accumulated audio buffer
-            std::vector<float> audio_buffer = audio_capture.get_audio_buffer();
-            
-            // Check if we have enough audio to process
-            if (audio_buffer.size() >= MIN_AUDIO_SAMPLES) {
+            // Check if VAD has detected speech followed by silence
+            if (audio_capture.is_ready_to_process()) {
+                // Get accumulated audio buffer
+                std::vector<float> audio_buffer = audio_capture.get_audio_buffer();
+                
                 fprintf(stderr, "\nProcessing %.2f seconds of audio...\n", 
                         static_cast<float>(audio_buffer.size()) / audio_config.sample_rate);
                 
@@ -547,8 +546,9 @@ int main(int argc, char ** argv) {
                 fprintf(stderr, "Error: Audio transcription requires Whisper support\n");
 #endif
                 
-                // Clear the buffer after processing
+                // Clear the buffer and reset VAD state after processing
                 audio_capture.clear_buffer();
+                audio_capture.reset_vad_state();
                 
                 fprintf(stderr, "\nListening...\n");
             }
