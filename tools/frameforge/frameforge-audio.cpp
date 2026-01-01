@@ -62,7 +62,8 @@ bool AudioCapture::initialize() {
     err = Pa_OpenStream(
         reinterpret_cast<PaStream **>(&stream_), &input_params,
         nullptr,  // no output
-        config_.sample_rate, config_.frames_per_buffer, paClipOff, pa_callback, this);
+        config_.sample_rate, config_.frames_per_buffer, paClipOff, 
+        reinterpret_cast<PaStreamCallback *>(pa_callback), this);
 
     if (err != paNoError) {
         std::cerr << "PortAudio error: " << Pa_GetErrorText(err) << std::endl;

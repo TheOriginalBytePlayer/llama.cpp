@@ -58,6 +58,7 @@ private:
     void * stream_;  // PaStream* (opaque pointer to avoid including portaudio.h here)
 
     // PortAudio callback (static function)
+    // Uses void* for time_info to avoid including portaudio.h in the header
     static int pa_callback(const void * input, void * output, unsigned long frame_count,
                           const void * time_info, unsigned long status_flags, void * user_data);
 
