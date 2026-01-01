@@ -276,5 +276,19 @@ target_link_libraries(test-frameforge-new-features PRIVATE common)
 add_test(NAME test-frameforge-new-features COMMAND $<TARGET_FILE:test-frameforge-new-features> WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/tests)
 set_property(TEST test-frameforge-new-features PROPERTY LABELS "main")
 
+# FrameForge Audio Capture Test
+add_executable(test-frameforge-audio test-frameforge-audio.cpp
+    ${CMAKE_SOURCE_DIR}/tools/frameforge/frameforge-audio.cpp)
+target_include_directories(test-frameforge-audio PRIVATE ${CMAKE_SOURCE_DIR}/tools/frameforge ${CMAKE_SOURCE_DIR}/vendor)
+target_link_libraries(test-frameforge-audio PRIVATE common)
+# Add PortAudio if available
+if(PORTAUDIO_FOUND)
+    target_include_directories(test-frameforge-audio PRIVATE ${PORTAUDIO_INCLUDE_DIRS})
+    target_link_libraries(test-frameforge-audio PRIVATE ${PORTAUDIO_LIBRARIES})
+    target_compile_definitions(test-frameforge-audio PRIVATE FRAMEFORGE_PORTAUDIO_SUPPORT)
+endif()
+add_test(NAME test-frameforge-audio COMMAND $<TARGET_FILE:test-frameforge-audio> WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/tests)
+set_property(TEST test-frameforge-audio PROPERTY LABELS "main")
+
 llama_build_and_test(test-alloc.cpp)
 target_include_directories(test-alloc PRIVATE ${PROJECT_SOURCE_DIR}/ggml/src)
