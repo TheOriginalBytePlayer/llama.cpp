@@ -35,6 +35,9 @@ AudioCapture::AudioCapture(const AudioConfig & config)
     silence_samples_threshold_ = static_cast<size_t>(
         (config_.silence_duration_ms / 1000.0f) * config_.sample_rate
     );
+    max_buffer_samples_ = static_cast<size_t>(
+        config_.max_buffer_duration_s * config_.sample_rate * config_.channels
+    );
 }
 
 AudioCapture::~AudioCapture() {
@@ -213,7 +216,8 @@ bool AudioCapture::is_speech(const float * data, size_t sample_count) const {
 }
 
 int AudioCapture::pa_callback(const void * input, void * output, unsigned long frame_count,
-                              const void * time_info, unsigned long status_flags, void * user_data) {
+                              const PaStreamCallbackTimeInfo * time_info, 
+                              PaStreamCallbackFlags status_flags, void * user_data) {
     (void) output;
     (void) time_info;
     (void) status_flags;
@@ -236,9 +240,18 @@ void AudioCapture::handle_audio_data(const float * data, unsigned long frame_cou
     // Calculate total samples (frames * channels)
     size_t total_samples = frame_count * config_.channels;
 
-    // Store in buffer
+    // Store in buffer with size check to prevent unbounded growth
     {
         std::lock_guard<std::mutex> lock(buffer_mutex_);
+        
+        // Check if adding this data would exceed maximum buffer size
+        if (audio_buffer_.size() + total_samples > max_buffer_samples_) {
+            // Buffer is too large - remove oldest samples to make room
+            // This implements a rolling window approach
+            size_t samples_to_remove = (audio_buffer_.size() + total_samples) - max_buffer_samples_;
+            audio_buffer_.erase(audio_buffer_.begin(), audio_buffer_.begin() + samples_to_remove);
+        }
+        
         audio_buffer_.insert(audio_buffer_.end(), data, data + total_samples);
     }
 

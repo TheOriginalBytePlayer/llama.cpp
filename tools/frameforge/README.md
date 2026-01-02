@@ -154,7 +154,7 @@ Download and install PortAudio from http://www.portaudio.com/
 
 ### Live Audio Capture Mode (with microphone)
 
-**Requires PortAudio support (see Building section)**
+**Requires both PortAudio and Whisper support (see Building section)**
 
 ```bash
 ./build/bin/frameforge-sidecar \

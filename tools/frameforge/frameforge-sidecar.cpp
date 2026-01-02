@@ -352,6 +352,10 @@ int main(int argc, char ** argv) {
         return 1;
     }
     
+    // Set up signal handlers for graceful shutdown (once at the start)
+    std::signal(SIGINT, signal_handler);
+    std::signal(SIGTERM, signal_handler);
+    
     // Load verb definitions if provided
     if (!params.verb_definitions_file.empty()) {
         fprintf(stderr, "Loading verb definitions from: %s\n", params.verb_definitions_file.c_str());
@@ -485,10 +489,6 @@ int main(int argc, char ** argv) {
             return 1;
         }
         
-        // Set up signal handlers for graceful shutdown
-        std::signal(SIGINT, signal_handler);
-        std::signal(SIGTERM, signal_handler);
-        
         fprintf(stderr, "FrameForge Sidecar ready. Listening to microphone...\n");
         fprintf(stderr, "Press Ctrl+C to stop\n");
         fprintf(stderr, "VAD settings: min_speech=%.0fms, silence=%.0fms\n", 
@@ -573,10 +573,6 @@ int main(int argc, char ** argv) {
 #endif
         return 1;
     }
-    
-    // Set up signal handlers for graceful shutdown
-    std::signal(SIGINT, signal_handler);
-    std::signal(SIGTERM, signal_handler);
     
     fprintf(stderr, "FrameForge Sidecar ready. Waiting for commands...\n");
     fprintf(stderr, "Press Ctrl+C to stop\n");

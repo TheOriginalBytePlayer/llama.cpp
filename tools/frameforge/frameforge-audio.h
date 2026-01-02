@@ -6,6 +6,12 @@
 #include <atomic>
 #include <mutex>
 
+// Forward declarations for PortAudio types
+#ifdef FRAMEFORGE_PORTAUDIO_SUPPORT
+struct PaStreamCallbackTimeInfo;
+typedef unsigned long PaStreamCallbackFlags;
+#endif
+
 namespace frameforge {
 
 // Audio capture configuration
@@ -16,6 +22,7 @@ struct AudioConfig {
     float vad_threshold = 0.01f; // Voice activity detection threshold (RMS)
     float min_speech_duration_ms = 500.0f;   // Minimum speech duration in milliseconds
     float silence_duration_ms = 250.0f;      // Silence duration to trigger processing
+    float max_buffer_duration_s = 30.0f;     // Maximum buffer duration in seconds (prevents unbounded growth)
 };
 
 // Audio capture callback function type
@@ -78,11 +85,12 @@ private:
     size_t silence_sample_count_;
     size_t min_speech_samples_;
     size_t silence_samples_threshold_;
+    size_t max_buffer_samples_;  // Maximum buffer size in samples
 
     // PortAudio callback (static function)
-    // Uses void* for time_info to avoid including portaudio.h in the header
     static int pa_callback(const void * input, void * output, unsigned long frame_count,
-                          const void * time_info, unsigned long status_flags, void * user_data);
+                          const PaStreamCallbackTimeInfo * time_info, 
+                          PaStreamCallbackFlags status_flags, void * user_data);
 
     // Instance callback handler
     void handle_audio_data(const float * data, unsigned long frame_count);
