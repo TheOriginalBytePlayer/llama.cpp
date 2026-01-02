@@ -26,7 +26,6 @@ static std::atomic<bool> g_running(true);
 // Signal handler for graceful shutdown
 static void signal_handler(int signal) {
     if (signal == SIGINT || signal == SIGTERM) {
-        fprintf(stderr, "\nReceived signal %d, shutting down...\n", signal);
         g_running = false;
     }
 }
