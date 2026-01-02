@@ -5,7 +5,7 @@ This tool integrates Whisper.cpp for speech-to-text and Llama.cpp for intent cla
 ## Overview
 
 The FrameForge Sidecar is a 64-bit resident process that:
-1. Receives audio input (via file or IPC)
+1. Receives audio input (via file, IPC, or live microphone capture with PortAudio)
 2. Transcribes audio to text using Whisper
 3. Classifies intent and extracts parameters using Llama
 4. Validates commands against a strict schema
@@ -116,6 +116,30 @@ cmake --build build --config Release
 
 The binary will be located at: `build/bin/frameforge-sidecar`
 
+### Dependencies
+
+**Required:**
+- Llama.cpp (built-in)
+
+**Optional:**
+- Whisper.cpp - For speech-to-text transcription (recommended)
+- PortAudio - For live microphone audio capture (recommended for production use)
+
+To enable PortAudio support, install the development library before building:
+
+**Ubuntu/Debian:**
+```bash
+sudo apt-get install portaudio19-dev
+```
+
+**macOS:**
+```bash
+brew install portaudio
+```
+
+**Windows:**
+Download and install PortAudio from http://www.portaudio.com/
+
 ## Usage
 
 ### Test Mode (with audio file)
@@ -128,6 +152,24 @@ The binary will be located at: `build/bin/frameforge-sidecar`
   --verbose
 ```
 
+### Live Audio Capture Mode (with microphone)
+
+**Requires both PortAudio and Whisper support (see Building section)**
+
+```bash
+./build/bin/frameforge-sidecar \
+  --whisper-model /path/to/whisper-model.bin \
+  --llama-model /path/to/llama-model.gguf \
+  --live-audio \
+  --verbose
+```
+
+This mode continuously captures audio from the default microphone using Voice Activity Detection (VAD). It automatically detects when speech begins and ends, then processes the audio when:
+1. At least 500ms of speech is detected
+2. Followed by 250ms of silence
+
+The captured speech is then transcribed with Whisper, classified with Llama, and validated. The audio buffer is cleared after each processing cycle.
+
 ### Server Mode (IPC with Named Pipes)
 
 ```bash
@@ -139,9 +181,10 @@ The binary will be located at: `build/bin/frameforge-sidecar`
 
 ### Command-Line Options
 
-- `-wm, --whisper-model FNAME` - Path to Whisper model file (required)
+- `-wm, --whisper-model FNAME` - Path to Whisper model file (required if Whisper support is compiled)
 - `-lm, --llama-model FNAME` - Path to Llama model file (required)
 - `-a, --audio FILE` - Audio file to transcribe (for testing)
+- `-la, --live-audio` - Enable live audio capture via PortAudio (requires PortAudio support)
 - `-p, --pipe NAME` - Named pipe name (default: frameforge_pipe)
 - `-vd, --verb-defs FILE` - Path to verb definitions JSON file (optional)
 - `-t, --threads N` - Number of threads (default: 4)

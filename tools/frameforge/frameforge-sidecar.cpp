@@ -2,6 +2,7 @@
 #ifdef FRAMEFORGE_WHISPER_SUPPORT
 #include "../../external/whisper/include/whisper.h"
 #endif
+#include "frameforge-audio.h"
 #include "frameforge-ipc.h"
 #include "frameforge-json.h"
 #include "frameforge-schema.h"
@@ -10,6 +11,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <csignal>
 #include <cstdio>
 #include <cstring>
 #include <fstream>
@@ -17,6 +19,16 @@
 #include <string>
 #include <thread>
 #include <vector>
+
+// Global flag for signal handling
+static std::atomic<bool> g_running(true);
+
+// Signal handler for graceful shutdown
+static void signal_handler(int signal) {
+    if (signal == SIGINT || signal == SIGTERM) {
+        g_running = false;
+    }
+}
 
 // System prompt for Llama intent classification
 static const char * INTENT_SYSTEM_PROMPT = R"(You are an intent classifier for FrameForge Studio, a professional previsualization software.
@@ -78,6 +90,7 @@ struct frameforge_params {
     std::string verb_definitions_file;  // Path to verb definitions JSON
     int n_threads = 4;
     bool verbose = false;
+    bool live_audio = false;  // Enable live audio capture with PortAudio
 };
 
 static void print_usage(const char * argv0) {
@@ -88,6 +101,9 @@ static void print_usage(const char * argv0) {
 #endif
     fprintf(stderr, "  -lm, --llama-model FNAME    Path to Llama model file\n");
     fprintf(stderr, "  -a,  --audio FILE           Audio file to transcribe (for testing)\n");
+#ifdef FRAMEFORGE_PORTAUDIO_SUPPORT
+    fprintf(stderr, "  -la, --live-audio           Enable live audio capture via PortAudio\n");
+#endif
     fprintf(stderr, "  -p,  --pipe NAME            Named pipe name (default: frameforge_pipe)\n");
     fprintf(stderr, "  -vd, --verb-defs FILE       Path to verb definitions JSON file\n");
     fprintf(stderr, "  -t,  --threads N            Number of threads (default: 4)\n");
@@ -123,6 +139,10 @@ static bool parse_params(int argc, char ** argv, frameforge_params & params) {
                 fprintf(stderr, "Error: Missing value for %s\n", arg.c_str());
                 return false;
             }
+#ifdef FRAMEFORGE_PORTAUDIO_SUPPORT
+        } else if (arg == "-la" || arg == "--live-audio") {
+            params.live_audio = true;
+#endif
         } else if (arg == "-p" || arg == "--pipe") {
             if (i + 1 < argc) {
                 params.pipe_name = argv[++i];
@@ -332,6 +352,10 @@ int main(int argc, char ** argv) {
         return 1;
     }
     
+    // Set up signal handlers for graceful shutdown (once at the start)
+    std::signal(SIGINT, signal_handler);
+    std::signal(SIGTERM, signal_handler);
+    
     // Load verb definitions if provided
     if (!params.verb_definitions_file.empty()) {
         fprintf(stderr, "Loading verb definitions from: %s\n", params.verb_definitions_file.c_str());
@@ -437,6 +461,105 @@ int main(int argc, char ** argv) {
         return 0;
     }
     
+    // Live audio capture mode: capture audio from microphone
+#if defined(FRAMEFORGE_PORTAUDIO_SUPPORT) && defined(FRAMEFORGE_WHISPER_SUPPORT)
+    if (params.live_audio) {
+        fprintf(stderr, "Starting live audio capture mode...\n");
+        
+        frameforge::AudioConfig audio_config;
+        audio_config.sample_rate = 16000;  // 16kHz for Whisper
+        audio_config.channels = 1;         // Mono
+        audio_config.frames_per_buffer = 512;
+        
+        frameforge::AudioCapture audio_capture(audio_config);
+        
+        if (!audio_capture.initialize()) {
+            fprintf(stderr, "Error: Failed to initialize audio capture\n");
+            llama_free(lctx);
+            llama_model_free(model);
+            whisper_free(wctx);
+            return 1;
+        }
+        
+        if (!audio_capture.start()) {
+            fprintf(stderr, "Error: Failed to start audio capture\n");
+            llama_free(lctx);
+            llama_model_free(model);
+            whisper_free(wctx);
+            return 1;
+        }
+        
+        fprintf(stderr, "FrameForge Sidecar ready. Listening to microphone...\n");
+        fprintf(stderr, "Press Ctrl+C to stop\n");
+        fprintf(stderr, "VAD settings: min_speech=%.0fms, silence=%.0fms\n", 
+                audio_config.min_speech_duration_ms, audio_config.silence_duration_ms);
+        
+        // Main loop for live audio with VAD
+        while (g_running) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(50));
+            
+            // Check if VAD has detected speech followed by silence
+            if (audio_capture.is_ready_to_process()) {
+                // Get accumulated audio buffer
+                std::vector<float> audio_buffer = audio_capture.get_audio_buffer();
+                
+                fprintf(stderr, "\nProcessing %.2f seconds of audio...\n", 
+                        static_cast<float>(audio_buffer.size()) / audio_config.sample_rate);
+                
+                // Transcribe audio
+                fprintf(stderr, "Transcribing audio...\n");
+                std::string transcription = transcribe_audio(wctx, audio_buffer, params.verbose);
+                
+                if (!transcription.empty()) {
+                    fprintf(stderr, "Transcription: %s\n", transcription.c_str());
+                    
+                    // Classify intent
+                    fprintf(stderr, "Classifying intent...\n");
+                    std::string llm_response = classify_intent(lctx, model, transcription, params.verbose);
+                    fprintf(stderr, "LLM Response: %s\n", llm_response.c_str());
+                    
+                    // Validate the command
+                    frameforge::Command cmd;
+                    frameforge::ValidationResult result = validator.validate_json(llm_response, cmd);
+                    
+                    if (result.valid) {
+                        std::string json_output = frameforge::command_to_json(cmd);
+                        fprintf(stderr, "Valid command:\n%s\n", json_output.c_str());
+                    } else {
+                        fprintf(stderr, "Validation failed: %s\n", result.error_message.c_str());
+                        std::string clarification = validator.generate_clarification_request(result, cmd);
+                        fprintf(stderr, "Clarification: %s\n", clarification.c_str());
+                    }
+                } else {
+                    fprintf(stderr, "No transcription generated (silence or noise)\n");
+                }
+                
+                // Clear the buffer and reset VAD state after processing
+                audio_capture.clear_buffer();
+                audio_capture.reset_vad_state();
+                
+                fprintf(stderr, "\nListening...\n");
+            }
+        }
+        
+        audio_capture.stop();
+        llama_free(lctx);
+        llama_model_free(model);
+        whisper_free(wctx);
+        return 0;
+    }
+#else
+    if (params.live_audio) {
+        fprintf(stderr, "Error: Live audio capture requires both PortAudio and Whisper support\n");
+        llama_free(lctx);
+        llama_model_free(model);
+#ifdef FRAMEFORGE_WHISPER_SUPPORT
+        whisper_free(wctx);
+#endif
+        return 1;
+    }
+#endif
+    
     // Server mode: start IPC server
     fprintf(stderr, "Starting IPC server on pipe: %s\n", params.pipe_name.c_str());
     frameforge::IPCServer ipc_server(params.pipe_name);
@@ -452,10 +575,10 @@ int main(int argc, char ** argv) {
     }
     
     fprintf(stderr, "FrameForge Sidecar ready. Waiting for commands...\n");
+    fprintf(stderr, "Press Ctrl+C to stop\n");
     
     // Main loop
-    std::atomic<bool> running(true);
-    while (running) {
+    while (g_running) {
         // In a real implementation, this would:
         // 1. Receive audio data from the IPC pipe
         // 2. Transcribe with Whisper

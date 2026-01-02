@@ -6,6 +6,7 @@ add_executable(${TARGET}
     frameforge-validator.cpp
     frameforge-json.cpp
     frameforge-ipc.cpp
+    frameforge-audio.cpp
 )
 
 target_include_directories(${TARGET} PRIVATE
@@ -30,6 +31,22 @@ if(EXISTS ${CMAKE_SOURCE_DIR}/external/whisper/CMakeLists.txt)
     target_compile_definitions(${TARGET} PRIVATE FRAMEFORGE_WHISPER_SUPPORT)
 else()
     message(WARNING "Whisper not found at ${CMAKE_SOURCE_DIR}/external/whisper, frameforge-sidecar will build without Whisper support")
+endif()
+
+# PortAudio for live audio capture
+find_package(PkgConfig)
+if(PkgConfig_FOUND)
+    pkg_check_modules(PORTAUDIO portaudio-2.0)
+    if(PORTAUDIO_FOUND)
+        target_include_directories(${TARGET} PRIVATE ${PORTAUDIO_INCLUDE_DIRS})
+        target_link_libraries(${TARGET} PRIVATE ${PORTAUDIO_LIBRARIES})
+        target_compile_definitions(${TARGET} PRIVATE FRAMEFORGE_PORTAUDIO_SUPPORT)
+        message(STATUS "PortAudio found, enabling live audio capture")
+    else()
+        message(WARNING "PortAudio not found, frameforge-sidecar will build without live audio capture support")
+    endif()
+else()
+    message(WARNING "PkgConfig not found, cannot detect PortAudio")
 endif()
 
 # Platform-specific libraries
