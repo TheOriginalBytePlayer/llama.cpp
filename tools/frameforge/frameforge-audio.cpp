@@ -13,7 +13,8 @@ namespace frameforge {
 
 #ifdef FRAMEFORGE_PORTAUDIO_SUPPORT
 
-// Global PortAudio initialization tracking
+// Global PortAudio initialization tracking (protected by mutex)
+static std::mutex g_portaudio_mutex;
 static bool g_portaudio_initialized = false;
 static int  g_portaudio_ref_count   = 0;
 
@@ -22,6 +23,7 @@ AudioCapture::AudioCapture(const AudioConfig & config)
     , callback_(nullptr)
     , capturing_(false)
     , stream_(nullptr)
+    , initialized_(false)
     , ready_to_process_(false)
     , has_speech_(false)
     , speech_sample_count_(0)
@@ -41,26 +43,48 @@ AudioCapture::~AudioCapture() {
         Pa_CloseStream(static_cast<PaStream *>(stream_));
         stream_ = nullptr;
     }
-    // Note: We don't call Pa_Terminate() here as it affects global PortAudio state
-    // In a production application, Pa_Terminate() should be called once at application shutdown
+    
+    // Decrement reference count and terminate PortAudio if needed
+    if (initialized_) {
+        std::lock_guard<std::mutex> lock(g_portaudio_mutex);
+        g_portaudio_ref_count--;
+        if (g_portaudio_ref_count == 0) {
+            Pa_Terminate();
+            g_portaudio_initialized = false;
+        }
+    }
 }
 
 bool AudioCapture::initialize() {
-    // Initialize PortAudio if not already initialized
-    if (!g_portaudio_initialized) {
-        PaError err = Pa_Initialize();
-        if (err != paNoError) {
-            std::cerr << "PortAudio error: " << Pa_GetErrorText(err) << std::endl;
-            return false;
-        }
-        g_portaudio_initialized = true;
+    // Check if already initialized
+    if (initialized_) {
+        std::cerr << "Warning: AudioCapture already initialized" << std::endl;
+        return true;
     }
-    g_portaudio_ref_count++;
+    
+    // Initialize PortAudio if not already initialized (thread-safe)
+    {
+        std::lock_guard<std::mutex> lock(g_portaudio_mutex);
+        if (!g_portaudio_initialized) {
+            PaError err = Pa_Initialize();
+            if (err != paNoError) {
+                std::cerr << "PortAudio error: " << Pa_GetErrorText(err) << std::endl;
+                return false;
+            }
+            g_portaudio_initialized = true;
+        }
+        g_portaudio_ref_count++;
+    }
+    initialized_ = true;
 
     // Get default input device
     PaDeviceIndex device = Pa_GetDefaultInputDevice();
     if (device == paNoDevice) {
         std::cerr << "Error: No default input device found" << std::endl;
+        // Decrement ref count on error
+        std::lock_guard<std::mutex> lock(g_portaudio_mutex);
+        g_portaudio_ref_count--;
+        initialized_ = false;
         return false;
     }
 
@@ -70,6 +94,13 @@ bool AudioCapture::initialize() {
         std::cout << "Using audio device: " << device_info->name << std::endl;
         std::cout << "  Sample rate: " << config_.sample_rate << " Hz" << std::endl;
         std::cout << "  Channels: " << config_.channels << std::endl;
+    } else {
+        std::cerr << "Error: Could not get device info" << std::endl;
+        // Decrement ref count on error
+        std::lock_guard<std::mutex> lock(g_portaudio_mutex);
+        g_portaudio_ref_count--;
+        initialized_ = false;
+        return false;
     }
 
     // Set up stream parameters
@@ -81,17 +112,23 @@ bool AudioCapture::initialize() {
     input_params.hostApiSpecificStreamInfo = nullptr;
 
     // Open audio stream
+    PaStream * pa_stream = nullptr;
     PaError err = Pa_OpenStream(
-        reinterpret_cast<PaStream **>(&stream_), &input_params,
+        &pa_stream, &input_params,
         nullptr,  // no output
         config_.sample_rate, config_.frames_per_buffer, paClipOff, 
         reinterpret_cast<PaStreamCallback *>(pa_callback), this);
 
     if (err != paNoError) {
         std::cerr << "PortAudio error: " << Pa_GetErrorText(err) << std::endl;
+        // Decrement ref count on error
+        std::lock_guard<std::mutex> lock(g_portaudio_mutex);
+        g_portaudio_ref_count--;
+        initialized_ = false;
         return false;
     }
-
+    
+    stream_ = pa_stream;
     return true;
 }
 
@@ -241,8 +278,11 @@ void AudioCapture::handle_audio_data(const float * data, unsigned long frame_cou
     }
 
     // Call user callback if set
+    // Note: Creating vector from raw data involves a copy, but this matches
+    // the callback signature. For high-performance use cases, consider using
+    // the internal buffer directly or redesigning the callback interface.
     if (callback_) {
-        std::vector<float> callback_data(data, data + total_samples);
+        const std::vector<float> callback_data(data, data + total_samples);
         callback_(callback_data);
     }
 }

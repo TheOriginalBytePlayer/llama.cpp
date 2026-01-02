@@ -68,6 +68,7 @@ private:
     std::vector<float> audio_buffer_;
     std::mutex buffer_mutex_;
     void * stream_;  // PaStream* (opaque pointer to avoid including portaudio.h here)
+    bool initialized_;  // Track if this instance has initialized PortAudio
     
     // VAD state tracking (protected by vad_mutex_)
     std::mutex vad_mutex_;
