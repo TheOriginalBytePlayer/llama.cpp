@@ -458,7 +458,7 @@ int main(int argc, char ** argv) {
     }
     
     // Live audio capture mode: capture audio from microphone
-#ifdef FRAMEFORGE_PORTAUDIO_SUPPORT
+#if defined(FRAMEFORGE_PORTAUDIO_SUPPORT) && defined(FRAMEFORGE_WHISPER_SUPPORT)
     if (params.live_audio) {
         fprintf(stderr, "Starting live audio capture mode...\n");
         
@@ -473,9 +473,7 @@ int main(int argc, char ** argv) {
             fprintf(stderr, "Error: Failed to initialize audio capture\n");
             llama_free(lctx);
             llama_model_free(model);
-#ifdef FRAMEFORGE_WHISPER_SUPPORT
             whisper_free(wctx);
-#endif
             return 1;
         }
         
@@ -483,9 +481,7 @@ int main(int argc, char ** argv) {
             fprintf(stderr, "Error: Failed to start audio capture\n");
             llama_free(lctx);
             llama_model_free(model);
-#ifdef FRAMEFORGE_WHISPER_SUPPORT
             whisper_free(wctx);
-#endif
             return 1;
         }
         
@@ -510,7 +506,6 @@ int main(int argc, char ** argv) {
                 fprintf(stderr, "\nProcessing %.2f seconds of audio...\n", 
                         static_cast<float>(audio_buffer.size()) / audio_config.sample_rate);
                 
-#ifdef FRAMEFORGE_WHISPER_SUPPORT
                 // Transcribe audio
                 fprintf(stderr, "Transcribing audio...\n");
                 std::string transcription = transcribe_audio(wctx, audio_buffer, params.verbose);
@@ -538,9 +533,6 @@ int main(int argc, char ** argv) {
                 } else {
                     fprintf(stderr, "No transcription generated (silence or noise)\n");
                 }
-#else
-                fprintf(stderr, "Error: Audio transcription requires Whisper support\n");
-#endif
                 
                 // Clear the buffer and reset VAD state after processing
                 audio_capture.clear_buffer();
@@ -553,14 +545,12 @@ int main(int argc, char ** argv) {
         audio_capture.stop();
         llama_free(lctx);
         llama_model_free(model);
-#ifdef FRAMEFORGE_WHISPER_SUPPORT
         whisper_free(wctx);
-#endif
         return 0;
     }
 #else
     if (params.live_audio) {
-        fprintf(stderr, "Error: Live audio capture requires PortAudio support (not compiled)\n");
+        fprintf(stderr, "Error: Live audio capture requires both PortAudio and Whisper support\n");
         llama_free(lctx);
         llama_model_free(model);
 #ifdef FRAMEFORGE_WHISPER_SUPPORT
