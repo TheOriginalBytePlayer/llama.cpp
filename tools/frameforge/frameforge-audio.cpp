@@ -122,7 +122,11 @@ void AudioCapture::stop() {
     }
 
     if (stream_) {
-        Pa_StopStream(static_cast<PaStream *>(stream_));
+        PaError err = Pa_StopStream(static_cast<PaStream *>(stream_));
+        if (err != paNoError) {
+            std::cerr << "PortAudio error when stopping stream: " << Pa_GetErrorText(err) << std::endl;
+            return;
+        }
     }
 
     capturing_ = false;
