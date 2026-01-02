@@ -45,11 +45,17 @@ static void test_audio_capture_initialization() {
     if (init_result) {
         std::cout << "  ✓ Audio capture initialization succeeded" << std::endl;
         
+        // Follow typical usage pattern: start capturing before testing buffer operations.
+        capture.start();
+
         // Test buffer operations
         capture.clear_buffer();
         std::vector<float> buffer = capture.get_audio_buffer();
         assert(buffer.empty());
         std::cout << "  ✓ Buffer operations work" << std::endl;
+
+        // Stop capturing to complete the typical lifecycle.
+        capture.stop();
     } else {
         std::cout << "  ! Audio capture initialization failed (this is OK if no audio device is available)" << std::endl;
     }
