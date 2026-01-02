@@ -490,9 +490,6 @@ int main(int argc, char ** argv) {
             return 1;
         }
         
-        // Initialize command validator
-        frameforge::CommandValidator validator;
-        
         // Set up signal handlers for graceful shutdown
         std::signal(SIGINT, signal_handler);
         std::signal(SIGTERM, signal_handler);
