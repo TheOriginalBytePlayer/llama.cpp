@@ -135,7 +135,9 @@ void AudioCapture::set_callback(AudioCallback callback) {
 
 std::vector<float> AudioCapture::get_audio_buffer() {
     std::lock_guard<std::mutex> lock(buffer_mutex_);
-    return audio_buffer_;
+    std::vector<float> buffer_copy;
+    buffer_copy.swap(audio_buffer_);
+    return buffer_copy;
 }
 
 void AudioCapture::clear_buffer() {
